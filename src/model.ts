@@ -36,6 +36,8 @@ export type ScheduleData = {
 }
 
 export const STORAGE_KEY = 'campus-schedule-v1'
+export const MIN_ROW_HEIGHT = 42
+export const MAX_ROW_HEIGHT = 118
 
 export const COURSE_COLORS = [
   { name: '蓝莓', value: '#91b5ef' },
@@ -86,7 +88,7 @@ export function parseScheduleData(value: unknown): ScheduleData | null {
   const totalWeeks = Number(settings.totalWeeks)
   if (!Number.isInteger(totalWeeks) || totalWeeks < 1 || totalWeeks > 60) return null
   const storedRowHeight = Number(settings.rowHeight)
-  const rowHeight = Number.isInteger(storedRowHeight) && storedRowHeight >= 68 && storedRowHeight <= 118 && (storedRowHeight - 68) % 2 === 0
+  const rowHeight = Number.isInteger(storedRowHeight) && storedRowHeight >= MIN_ROW_HEIGHT && storedRowHeight <= MAX_ROW_HEIGHT && (storedRowHeight - MIN_ROW_HEIGHT) % 2 === 0
     ? storedRowHeight
     : 82
 

@@ -1,10 +1,10 @@
 import { CalendarClock } from 'lucide-react'
-import type { CSSProperties } from 'react'
+import { useLayoutEffect, useRef, type CSSProperties } from 'react'
 import {
   formatWeeks,
   getConflictIds,
   getDayMeetings,
-  getMeetingTime,
+  MIN_ROW_HEIGHT,
   type Course,
   type ScheduleSettings,
 } from './model'
@@ -15,26 +15,73 @@ type TimetableBoardProps = {
   courses: Course[]
   settings: ScheduleSettings
   exportMode?: boolean
+  rowHeight?: number
   selectedCourseId?: string | null
   onSelectCourse?: (courseId: string) => void
+  onContentRowHeightChange?: (rowHeight: number) => void
 }
 
 export function TimetableBoard({
   courses,
   settings,
   exportMode = false,
+  rowHeight,
   selectedCourseId,
   onSelectCourse,
+  onContentRowHeightChange,
 }: TimetableBoardProps) {
+  const boardRef = useRef<HTMLElement>(null)
   const conflicts = getConflictIds(courses)
   const days = DAY_NAMES.map((name, index) => ({ number: index + 1, name }))
   const style = {
     '--period-count': settings.periods.length,
-    '--slot-height': `${settings.rowHeight}px`,
+    '--slot-height': `${rowHeight ?? settings.rowHeight}px`,
   } as CSSProperties
 
+  useLayoutEffect(() => {
+    if (!onContentRowHeightChange) return
+    const board = boardRef.current
+    if (!board) return
+    let active = true
+
+    const measureContent = () => {
+      if (!active) return
+      let requiredRowHeight = MIN_ROW_HEIGHT
+      board.querySelectorAll<HTMLElement>('.course-block').forEach((block) => {
+        const content = block.querySelector<HTMLElement>('.course-block__content')
+        const periodSpan = Number(block.dataset.periodSpan)
+        if (!content || !periodSpan) return
+
+        const cardStyle = window.getComputedStyle(block)
+        const verticalSpace = [
+          cardStyle.paddingTop,
+          cardStyle.paddingBottom,
+          cardStyle.borderTopWidth,
+          cardStyle.borderBottomWidth,
+        ].reduce((total, value) => total + Number.parseFloat(value || '0'), 0)
+        const requiredCardHeight = content.getBoundingClientRect().height + verticalSpace + 8
+        requiredRowHeight = Math.max(requiredRowHeight, Math.ceil(requiredCardHeight / periodSpan))
+      })
+      onContentRowHeightChange(requiredRowHeight)
+    }
+
+    measureContent()
+    const observer = new ResizeObserver(measureContent)
+    board.querySelectorAll<HTMLElement>('.course-block__content').forEach((content) => observer.observe(content))
+    const firstDayTrack = board.querySelector<HTMLElement>('.day-track')
+    if (firstDayTrack) observer.observe(firstDayTrack)
+    window.addEventListener('resize', measureContent)
+    void document.fonts?.ready.then(measureContent)
+
+    return () => {
+      active = false
+      observer.disconnect()
+      window.removeEventListener('resize', measureContent)
+    }
+  }, [courses, settings, exportMode, onContentRowHeightChange])
+
   return (
-    <section className={`timetable-board${exportMode ? ' timetable-board--export' : ''}`} style={style}>
+    <section ref={boardRef} className={`timetable-board${exportMode ? ' timetable-board--export' : ''}`} style={style}>
       {exportMode && (
         <header className="export-heading">
           <div className="export-mark"><CalendarClock aria-hidden="true" /></div>
@@ -71,8 +118,7 @@ export function TimetableBoard({
                   const width = `calc(${100 / laneCount}% - 6px)`
                   const top = `calc(${meeting.startPeriod - 1} * var(--slot-height) + 4px)`
                   const height = `calc(${meeting.endPeriod - meeting.startPeriod + 1} * var(--slot-height) - 8px)`
-                  const meetingTime = getMeetingTime(meeting, settings.periods)
-                  const label = [course.name, meetingTime, formatWeeks(meeting.weeks, settings.totalWeeks), course.location].filter(Boolean).join('，')
+                  const label = [course.name, course.teacher, course.location, formatWeeks(meeting.weeks, settings.totalWeeks)].filter(Boolean).join('，')
                   return (
                     <div
                       key={meeting.id}
@@ -84,6 +130,7 @@ export function TimetableBoard({
                         left,
                         width,
                       } as CSSProperties}
+                      data-period-span={meeting.endPeriod - meeting.startPeriod + 1}
                       role={exportMode ? undefined : 'button'}
                       tabIndex={exportMode || !onSelectCourse ? undefined : 0}
                       aria-label={label}
@@ -96,10 +143,12 @@ export function TimetableBoard({
                         }
                       }}
                     >
-                      <span className="course-block__name">{course.name || '未命名课程'}</span>
-                      {!exportMode && course.teacher && <span className="course-block__meta">{course.teacher}</span>}
-                      {course.location && <span className="course-block__meta">{course.location}</span>}
-                      <span className="course-block__weeks">{formatWeeks(meeting.weeks, settings.totalWeeks)}</span>
+                      <div className="course-block__content">
+                        <span className="course-block__name">{course.name || '未命名课程'}</span>
+                        {course.teacher && <span className="course-block__meta">教师：{course.teacher}</span>}
+                        {course.location && <span className="course-block__meta">地点：{course.location}</span>}
+                        <span className="course-block__weeks">{formatWeeks(meeting.weeks, settings.totalWeeks)}</span>
+                      </div>
                       {conflict && <span className="course-block__conflict" aria-label="有同周冲突">!</span>}
                     </div>
                   )

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -32,6 +33,8 @@ import {
   getConflictIds,
   isTime,
   loadSchedule,
+  MAX_ROW_HEIGHT,
+  MIN_ROW_HEIGHT,
   parseScheduleData,
   parseWeeks,
   STORAGE_KEY,
@@ -113,6 +116,10 @@ function safeFilename(value: string) {
 function App() {
   const initial = useMemo(() => loadSchedule(), []);
   const [data, setData] = useState<ScheduleData>(initial.data);
+  const [measuredRowHeights, setMeasuredRowHeights] = useState(() => ({
+    editor: MIN_ROW_HEIGHT,
+    export: MIN_ROW_HEIGHT,
+  }));
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
     "saved",
   );
@@ -130,6 +137,14 @@ function App() {
   const [weekError, setWeekError] = useState("");
   const exportRef = useRef<HTMLDivElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const reportEditorRowHeight = useCallback((rowHeight: number) => {
+    setMeasuredRowHeights((current) => current.editor === rowHeight ? current : { ...current, editor: rowHeight });
+  }, []);
+  const reportExportRowHeight = useCallback((rowHeight: number) => {
+    setMeasuredRowHeights((current) => current.export === rowHeight ? current : { ...current, export: rowHeight });
+  }, []);
+  const requiredContentRowHeight = Math.max(measuredRowHeights.editor, measuredRowHeights.export);
+  const effectiveRowHeight = data.settings.rowHeight + Math.max(0, requiredContentRowHeight - MIN_ROW_HEIGHT);
 
   useEffect(() => {
     setSaveState("saving");
@@ -400,6 +415,9 @@ function App() {
     setNotice("");
     try {
       await document.fonts?.ready;
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
       const image = await toPng(node, {
         pixelRatio: 3,
         cacheBust: true,
@@ -584,17 +602,19 @@ function App() {
           </div>
           <div className="density-setting">
             <div className="density-setting__heading">
-              <label htmlFor="row-height-setting">每节课表高度</label>
+              <label htmlFor="row-height-setting">每节基础高度</label>
               <output htmlFor="row-height-setting">
-                {data.settings.rowHeight}px / 节
+                {effectiveRowHeight > data.settings.rowHeight
+                  ? `实际 ${effectiveRowHeight}px / 节`
+                  : `${data.settings.rowHeight}px / 节`}
               </output>
             </div>
-            <p>编辑预览和导出图片使用相同高度。</p>
+            <p>内容较多时自动增高；编辑预览和导出图片保持一致。</p>
             <input
               id="row-height-setting"
               type="range"
-              min={68}
-              max={118}
+              min={MIN_ROW_HEIGHT}
+              max={MAX_ROW_HEIGHT}
               step={2}
               value={data.settings.rowHeight}
               aria-valuetext={`${data.settings.rowHeight} 像素每节`}
@@ -606,7 +626,7 @@ function App() {
               }
             />
             <div className="density-setting__scale">
-              <span>紧凑 · 68px</span>
+              <span>紧凑 · {MIN_ROW_HEIGHT}px</span>
               <span>舒展 · 118px</span>
             </div>
           </div>
@@ -731,8 +751,10 @@ function App() {
             <TimetableBoard
               courses={data.courses}
               settings={data.settings}
+              rowHeight={effectiveRowHeight}
               selectedCourseId={selectedCourseId}
               onSelectCourse={selectCourse}
+              onContentRowHeightChange={reportEditorRowHeight}
             />
           </div>
 
@@ -1000,7 +1022,7 @@ function App() {
               </div>
               <p className="form-footnote">
                 <CircleHelp size={13} aria-hidden="true" />{" "}
-                课程时间会显示在导出的图片里。
+                课程名、教师、地点和周次都会完整显示。
               </p>
             </form>
           ) : (
@@ -1078,7 +1100,9 @@ function App() {
           <TimetableBoard
             courses={data.courses}
             settings={data.settings}
+            rowHeight={effectiveRowHeight}
             exportMode
+            onContentRowHeightChange={reportExportRowHeight}
           />
         </div>
       </div>
